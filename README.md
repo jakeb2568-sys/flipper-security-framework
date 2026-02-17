@@ -16,7 +16,7 @@ Ethical RF, NFC, and IoT security assessment framework through the use of Flippe
 - Reporting: standardized findings + mitigation format
 
 ### Not Included ###
-- Any exploitation instriuctions for unauthorized access
+- Any exploitation instructions for unauthorized access
 - Guidance or instructions for bypassing access control on real systems
 
 ## Repository Layout ##
