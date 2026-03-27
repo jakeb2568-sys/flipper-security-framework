@@ -20,3 +20,32 @@ Ethical RF, NFC, and IoT security assessment framework through the use of Flippe
 - Guidance or instructions for bypassing access control on real systems
 
 ## Repository Layout ##
+flipper-security-framework/
+├── README.md
+├── .gitignore
+│
+├── docs/
+│   ├── methodology.md
+│   ├── legal-ethics.md
+│   ├── threat-modeling.md
+│   ├── scope-template.md
+│   ├── reporting-guide.md
+│   └── roadmap.md
+│
+├── tools/
+│   ├── README.md
+│   └── ingest/
+│       └── pull_flipper_exports.py
+│
+├── data/
+│   ├── raw/            # ignored (real artifacts)
+│   │   └── .gitkeep
+│   ├── processed/      # ignored (generated outputs)
+│   │   └── .gitkeep
+│   └── samples/        # safe demo data
+│       └── example_inventory.json
+│
+└── templates/
+    ├── findings.md
+    ├── assessment-notes.md
+    └── report-template.md
