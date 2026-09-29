@@ -381,13 +381,14 @@ def run_scans(cli, s, types, freqs, seconds):
             s.log(action="scan", type=t, error=str(e))
 
 
-def run_pipeline(s: Session, name: str) -> Path:
+def run_pipeline(s: Session, name: str, redact: bool = False) -> Path:
     out = REPO_ROOT / "data" / "processed" / s.id
     out.mkdir(parents=True, exist_ok=True)
     steps = [
         ["tools/ingest.py", str(s.dir), "-o", str(out / "ingested.json")],
         ["tools/analyze.py", "-i", str(out / "ingested.json"), "-o", str(out / "analyzed.json")],
-        ["tools/report.py", "-i", str(out / "analyzed.json"), "-o", str(out / "findings_report.md"), "-n", name],
+        ["tools/report.py", "-i", str(out / "analyzed.json"), "-o", str(out / "findings_report.md"), "-n", name,
+         *(["--redact"] if redact else [])],
     ]
     for step in steps:
         if subprocess.run([sys.executable, *step], cwd=REPO_ROOT).returncode != 0:
@@ -404,6 +405,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--session", help="Session folder name (default: timestamp)")
     ap.add_argument("--report", action="store_true", help="Run ingest → analyze → report after collecting")
     ap.add_argument("--name", default="Live Assessment", help="Assessment name used in the report")
+    ap.add_argument("--redact", action="store_true", help="Mask UIDs/keys in the report (safe to share)")
     ap.add_argument("-y", "--yes", action="store_true", help="Skip the authorization confirmation")
     sub = ap.add_subparsers(dest="mode", required=True)
 
@@ -450,7 +452,7 @@ def main(argv=None):
         if not session.saved:
             print("  [!] Nothing captured — skipping report.")
             return
-        report = run_pipeline(session, args.name)
+        report = run_pipeline(session, args.name, args.redact)
         print(f"\n  [✓] Report: {report}")
 
 

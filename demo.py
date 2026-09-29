@@ -11,7 +11,7 @@ import subprocess
 import sys
 import os
 
-os.chdir(os.path.dirname(os.path.abspath(__file__)) + "/..")
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 STEPS = [
     {
@@ -24,7 +24,7 @@ STEPS = [
     },
     {
         "label": "Step 3: Generate findings report",
-        "cmd": [sys.executable, "tools/report.py", "-i", "data/processed/analyzed.json", "-o", "reports/findings_report.md", "-n", "Demo Assessment — Sample Captures"]
+        "cmd": [sys.executable, "tools/report.py", "-i", "data/processed/analyzed.json", "-o", "data/processed/findings_report.md", "-n", "Demo Assessment — Sample Captures"]
     },
 ]
 
@@ -43,5 +43,5 @@ for step in STEPS:
 
 print(f"\n{'='*60}")
 print("  Demo complete!")
-print("  → Report: reports/findings_report.md")
+print("  → Report: data/processed/findings_report.md")
 print(f"{'='*60}\n")

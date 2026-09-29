@@ -1,7 +1,8 @@
 # Demo Assessment — Sample Captures
-**Generated:** 2026-03-27 23:14Z  
+**Generated:** 2026-09-29 17:02Z  
 **Framework:** Flipper Security Framework  
-**Tool:** Flipper Zero + Python Analysis Pipeline
+**Tool:** Flipper Zero + Python Analysis Pipeline  
+**Identifiers:** shown in full
 
 ---
 
@@ -9,26 +10,45 @@
 
 | Total Captures | CRITICAL | HIGH | MEDIUM | LOW | INFO |
 |---|---|---|---|---|---|
-| 3 | 0 | 1 | 0 | 2 | 0 |
+| 6 | 1 | 3 | 0 | 2 | 0 |
 
-**Overall Risk Posture:** 🟠 **HIGH**
+**Overall Risk Posture:** 🔴 **CRITICAL**
 
 ---
 
 ## Findings
 
-### Finding 1 — 🟠 HIGH | `garage_door.sub` (SUBGHZ)
+### Finding 1 — 🔴 CRITICAL | `office_badge.rfid` (RFID)
+
+**Capture Details:**
+- **Card Type:** `H10301`
+- **Uid:** `1C 3F 7A`
+
+**🔴 125 kHz proximity credential detected — no encryption**
+
+> 125 kHz LF credentials (EM4100, HID Prox/H10301, Indala, AWID, ...) have no encryption or authentication. The ID can be read and cloned in seconds, sometimes from several feet away with a long-range reader.
+
+**Recommended Mitigations:**
+- Migrate to 13.56 MHz credentials with mutual authentication (DESFire EV2/EV3, iCLASS SE, SEOS)
+- Pair the badge with a second factor (PIN or biometric) at sensitive doors
+- Deploy anti-cloning card sleeves as an interim measure
+
+---
+
+### Finding 2 — 🟠 HIGH | `garage_door.sub` (SUBGHZ)
 
 **Capture Details:**
 - **Protocol:** `Princeton`
 - **Frequency:** `433920000`
+- **Preset:** `FuriHalSubGhzPresetOok650Async`
+- **Key:** `00 00 00 00 00 A1 2F 44`
 
-**🟠 Fixed-code rolling-door or gate remote detected**
+**🟠 Fixed-code remote detected — replayable**
 
-> Fixed-code protocols are vulnerable to replay attacks. An attacker can capture and retransmit signals to gain physical access.
+> Fixed-code protocols send the same code on every press. Anyone within radio range can record one press and replay it to operate the device.
 
 **Recommended Mitigations:**
-- Replace with rolling-code (KeeLoq, AUT64) or challenge-response systems
+- Replace with rolling-code (KeeLoq, Security+ 2.0) or challenge-response systems
 - Implement RF jamming detection on entry systems
 - Audit which devices in scope use this protocol
 
@@ -43,24 +63,62 @@
 
 ---
 
-### Finding 2 — 🟢 LOW | `access_card.nfc` (NFC)
+### Finding 3 — 🟠 HIGH | `access_card.nfc` (NFC)
 
 **Capture Details:**
+- **Card Type:** `Mifare Classic 1K`
 - **Uid:** `4A 3B 2C 1D`
 - **Atqa:** `00 04`
 - **Sak:** `08`
 
-**🟢 NFC/RFID card inventoried**
+**🟠 Mifare Classic card detected — known cryptographic weakness**
 
-> Card was read and UID recorded. Card type does not match known-vulnerable protocols.
+> Mifare Classic uses the broken CRYPTO1 cipher. Cards can be cloned with commodity hardware. Widely used in access control and transit systems.
 
 **Recommended Mitigations:**
-- Verify card is an authorized device within scope
-- Document UID and card type in asset inventory
+- Replace with Mifare DESFire EV2/EV3 or ICODE SLIX2
+- Implement mutual authentication at the reader level
+- Audit all access control readers using this card type
 
 ---
 
-### Finding 3 — 🟢 LOW | `conference_room_tv.ir` (IR)
+### Finding 4 — 🟠 HIGH | `door_key.ibtn` (IBUTTON)
+
+**Capture Details:**
+- **Protocol:** `DS1990`
+- **Key Data:** `01 A2 B3 C4 D5 E6 F7 08`
+
+**🟠 iButton contact key detected — clonable**
+
+> Dallas/Cyfral/Metakom keys expose a fixed ID with no authentication. A single touch is enough to read and duplicate the key onto a blank.
+
+**Recommended Mitigations:**
+- Replace with keys that use challenge-response (e.g. DS1961S/DS28E-series secure authenticators)
+- Restrict physical access to readers and key holders
+- Log and review key usage at controlled doors
+
+---
+
+### Finding 5 — 🟢 LOW | `car_fob.sub` (SUBGHZ)
+
+**Capture Details:**
+- **Protocol:** `KeeLoq`
+- **Frequency:** `315000000`
+- **Preset:** `FuriHalSubGhzPresetOok650Async`
+- **Key:** `5A 3C 11 0F 88 21 4D 07`
+
+**🟢 Rolling-code remote detected — resists simple replay**
+
+> The code changes on every press, so a recorded signal will not work twice. Residual risks are relay/jam-and-replay attacks (e.g. RollJam) and weak manufacturer key management for older KeeLoq implementations.
+
+**Recommended Mitigations:**
+- Keep the key fob in a signal-blocking pouch when not in use if relay attacks are a concern
+- Prefer systems with challenge-response or UWB distance bounding for keyless entry
+- Document manufacturer and model for the asset inventory
+
+---
+
+### Finding 6 — 🟢 LOW | `conference_room_tv.ir` (IR)
 
 **Capture Details:**
 - **Signals:** `[{'name': 'Power', 'type': 'parsed', 'protocol': 'NECext', 'address': '04 00 00 00', 'command': '08 00 00 00'}, {'name': 'Vol+', 'type': 'parsed', 'protocol': 'NECext', 'address': '04 00 00 00', 'command': '02 00 00 00'}, {'name': 'Vol-', 'type': 'parsed', 'protocol': 'NECext', 'address': '04 00 00 00', 'command': '03 00 00 00'}, {'name': 'Mute', 'type': 'parsed', 'protocol': 'NECext', 'address': '04 00 00 00', 'command': '09 00 00 00'}]`
@@ -95,4 +153,4 @@ All testing was conducted with proper authorization. Findings are provided for d
 
 ---
 
-*Report generated by Flipper Security Framework — https://github.com/jakab2568-sys/flipper-security-framework*
+*Report generated by Flipper Security Framework — https://github.com/jakeb2568-sys/flipper-security-framework*

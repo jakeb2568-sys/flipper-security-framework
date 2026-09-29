@@ -2,7 +2,7 @@
 ingest.py — Flipper Zero Capture Ingestion & Normalization
 Flipper Security Framework
 
-Parses raw Flipper Zero output files (.sub, .nfc, .ir, .txt logs)
+Parses raw Flipper Zero output files (.sub, .nfc, .rfid, .ibtn, .ir, .txt logs)
 and normalizes them into a standard JSON format for analysis.
 """
 
@@ -23,17 +23,23 @@ def parse_subghz(filepath: str) -> dict:
         "source_file": os.path.basename(filepath),
         "protocol": None,
         "frequency": None,
+        "preset": None,
+        "key": None,
         "raw_data": [],
         "parsed_fields": {}
     }
 
-    with open(filepath, "r", errors="ignore") as f:
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if line.startswith("Frequency:"):
                 result["frequency"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Preset:") or line.startswith("Protocol:"):
+            elif line.startswith("Preset:"):
+                result["preset"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Protocol:"):
                 result["protocol"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Key:"):
+                result["key"] = line.split(":", 1)[1].strip()
             elif line.startswith("RAW_Data:") or line.startswith("Data:"):
                 result["raw_data"].append(line.split(":", 1)[1].strip())
             elif ":" in line:
@@ -56,10 +62,10 @@ def parse_nfc(filepath: str) -> dict:
         "parsed_fields": {}
     }
 
-    with open(filepath, "r", errors="ignore") as f:
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
-            if line.startswith("Card Type:"):
+            if line.startswith(("Card Type:", "Device type:")):
                 result["card_type"] = line.split(":", 1)[1].strip()
             elif line.startswith("UID:"):
                 result["uid"] = line.split(":", 1)[1].strip()
@@ -73,6 +79,55 @@ def parse_nfc(filepath: str) -> dict:
                 k, v = line.split(":", 1)
                 result["parsed_fields"][k.strip()] = v.strip()
 
+    # Firmware v4 files say "Device type: Mifare Classic" + "Mifare Classic type: 1K"
+    mfc_size = result["parsed_fields"].get("Mifare Classic type")
+    if result["card_type"] == "Mifare Classic" and mfc_size:
+        result["card_type"] = f"Mifare Classic {mfc_size}"
+
+    return result
+
+
+def parse_rfid(filepath: str) -> dict:
+    """Parse a Flipper Zero 125 kHz RFID key file (.rfid)."""
+    result = {
+        "type": "rfid",
+        "source_file": os.path.basename(filepath),
+        "card_type": None,
+        "uid": None,
+        "parsed_fields": {}
+    }
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("Key type:"):
+                result["card_type"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Data:"):
+                result["uid"] = line.split(":", 1)[1].strip()
+            elif ":" in line:
+                k, v = line.split(":", 1)
+                result["parsed_fields"][k.strip()] = v.strip()
+    return result
+
+
+def parse_ibutton(filepath: str) -> dict:
+    """Parse a Flipper Zero iButton key file (.ibtn), format v1 or v2."""
+    result = {
+        "type": "ibutton",
+        "source_file": os.path.basename(filepath),
+        "protocol": None,
+        "key_data": None,
+        "parsed_fields": {}
+    }
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith(("Protocol:", "Key type:")):
+                result["protocol"] = line.split(":", 1)[1].strip()
+            elif line.startswith(("Rom Data:", "Data:", "Key:")):
+                result["key_data"] = line.split(":", 1)[1].strip()
+            elif ":" in line:
+                k, v = line.split(":", 1)
+                result["parsed_fields"][k.strip()] = v.strip()
     return result
 
 
@@ -86,7 +141,7 @@ def parse_ir(filepath: str) -> dict:
     }
 
     current_signal = {}
-    with open(filepath, "r", errors="ignore") as f:
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if line.startswith("name:"):
@@ -119,7 +174,7 @@ def parse_generic_log(filepath: str) -> dict:
         "lines": [],
         "parsed_fields": {}
     }
-    with open(filepath, "r", errors="ignore") as f:
+    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             line = line.strip()
             if line:
@@ -135,6 +190,8 @@ def parse_generic_log(filepath: str) -> dict:
 PARSERS = {
     ".sub": parse_subghz,
     ".nfc": parse_nfc,
+    ".rfid": parse_rfid,
+    ".ibtn": parse_ibutton,
     ".ir":  parse_ir,
     ".txt": parse_generic_log,
     ".log": parse_generic_log,
@@ -195,7 +252,7 @@ def main():
         print(f"  [!] Error: '{input_path}' not found.")
         return
 
-    with open(args.output, "w") as f:
+    with open(args.output, "w", encoding="utf-8") as f:
         json.dump(records, f, indent=2)
 
     print(f"\n  [✓] Ingested {len(records)} capture(s) → {args.output}")
