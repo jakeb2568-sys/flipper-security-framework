@@ -14,6 +14,8 @@ Two ways to collect:
 
 Examples:
   python tools/capture.py pull
+  python tools/capture.py pull --since today --report --redact
+  python tools/capture.py pull --only "RAW-20260929-*"
   python tools/capture.py scan subghz --freq 433.92 --freq 315 --seconds 15
   python tools/capture.py scan all --report
   python tools/capture.py --port COM4 pull --report
@@ -31,12 +33,13 @@ See docs/legal-ethics.md.
 """
 
 import argparse
+import fnmatch
 import json
 import re
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 try:
@@ -325,12 +328,72 @@ class Session:
 
 # ── Collection actions ───────────────────────────────────────────────────────
 
-def pull(cli: FlipperCLI, s: Session, folders=SD_FOLDERS):
-    print("\n  Pulling saved captures from SD card")
+def parse_since(value: str | None) -> date | None:
+    """'today', 'yesterday' or 'YYYY-MM-DD' -> date."""
+    if not value:
+        return None
+    v = value.strip().lower()
+    if v == "today":
+        return date.today()
+    if v == "yesterday":
+        return date.fromordinal(date.today().toordinal() - 1)
+    try:
+        return date.fromisoformat(v)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--since must be today, yesterday or YYYY-MM-DD (got {value!r})")
+
+
+def capture_date(cli: FlipperCLI, path: str) -> date | None:
+    """When a file on the Flipper was saved.
+
+    Uses the date the Flipper puts in auto-generated names (RAW-20260929-123231.sub),
+    otherwise asks the Flipper for the file's timestamp.
+    """
+    m = re.search(r"(20\d{2})(\d{2})(\d{2})[-_]\d{4,6}", path.rsplit("/", 1)[-1])
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
+    try:
+        out = cli.run(f"storage timestamp {path}")
+    except FlipperBusyError:
+        raise
+    except Exception:
+        return None
+    ts = re.search(r"\b(\d{9,11})\b", out)
+    return datetime.fromtimestamp(int(ts.group(1))).date() if ts else None
+
+
+def pull(cli: FlipperCLI, s: Session, folders=SD_FOLDERS, since: date | None = None,
+         only: list[str] | None = None):
+    """Copy saved captures off the SD card, optionally filtered by date and/or name."""
+    what = []
+    if since:
+        what.append(f"saved on/after {since.isoformat()}")
+    if only:
+        what.append("matching " + ", ".join(only))
+    print("\n  Pulling saved captures from SD card" + (f" ({'; '.join(what)})" if what else ""))
     for folder, ext in folders.items():
         names = [n for n in cli.list_files(folder) if n.lower().endswith(ext)]
-        print(f"  {folder}: {len(names)} file(s)")
+        if only:
+            names = [n for n in names if any(fnmatch.fnmatch(n.lower(), pat.lower()) for pat in only)]
+        kept, skipped, undated = [], 0, []
         for name in names:
+            if since:
+                d = capture_date(cli, f"{folder}/{name}")
+                if d is None:
+                    undated.append(name)
+                    continue
+                if d < since:
+                    skipped += 1
+                    continue
+            kept.append(name)
+        note = f" (skipped {skipped} older)" if skipped else ""
+        print(f"  {folder}: {len(kept)} file(s){note}")
+        for name in undated:
+            print(f"    [?] {name}: no date available, skipped — use --only \"{name}\" to include it")
+        for name in kept:
             content = cli.read_file(f"{folder}/{name}")
             s.save(name, content)
             s.log(action="pull", source=f"{folder}/{name}")
@@ -441,13 +504,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="mode", required=True)
 
     pl = sub.add_parser("pull", help="Copy captures saved on the Flipper's SD card")
+    pl.add_argument("--since", type=parse_since, help="Only files saved on/after this day: today, yesterday or YYYY-MM-DD")
+    pl.add_argument("--only", action="append", metavar="PATTERN",
+                    help='Only files whose name matches (repeatable, wildcards ok): --only "RAW-20260929-*"')
     _add_common(pl, suppress=True)
 
     sc = sub.add_parser("scan", help="Run live read-only scans")
     sc.add_argument("types", nargs="+", choices=[*SCAN_TYPES, "all"], help="What to scan")
     sc.add_argument("--freq", type=float, action="append", help="Sub-GHz frequency in MHz (repeatable; default 433.92 and 315)")
     sc.add_argument("--seconds", type=int, default=10, help="Listen time per scan (default 10)")
-    sc.add_argument("--pull", action="store_true", help="Also pull saved SD-card captures afterwards")
+    sc.add_argument("--pull", action="store_true", help="Also pull captures saved on the SD card today")
     _add_common(sc, suppress=True)
     return ap
 
@@ -473,12 +539,12 @@ def main(argv=None):
               f"firmware {info.get('firmware_version') or '?'} ({info.get('firmware_origin') or 'unknown'})")
         try:
             if args.mode == "pull":
-                pull(cli, session)
+                pull(cli, session, since=args.since, only=args.only)
             else:
                 types = list(SCAN_TYPES) if "all" in args.types else args.types
                 run_scans(cli, session, types, args.freq or [433.92, 315.0], args.seconds)
                 if args.pull:
-                    pull(cli, session)
+                    pull(cli, session, since=date.today())  # just today's saves
         except FlipperBusyError as e:
             session.log(action="abort", error=str(e))
             session.write_manifest({"port": port, "device": info})

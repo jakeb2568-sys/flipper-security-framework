@@ -72,12 +72,10 @@ def generate_report(analysis: dict, assessment_name: str = "Security Assessment"
         "",
     ]
 
-    # ── Overall risk posture ──────────────────────────────────────────────────
-    highest = "INFO"
-    for level in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
-        if counts.get(level, 0) > 0:
-            highest = level
-            break
+    # ── Overall risk posture (captures + replay checks) ───────────────────────
+    checks = analysis.get("replay_checks", [])
+    present = {lvl for lvl, n in counts.items() if n} | {c["risk"] for c in checks}
+    highest = next((lvl for lvl in ["CRITICAL", "HIGH", "MEDIUM", "LOW"] if lvl in present), "INFO")
 
     emoji = RISK_EMOJI.get(highest, "⚪")
     lines += [
@@ -85,9 +83,34 @@ def generate_report(analysis: dict, assessment_name: str = "Security Assessment"
         "",
         "---",
         "",
-        "## Findings",
-        "",
     ]
+
+    # ── Replay-resistance checks ──────────────────────────────────────────────
+    if checks:
+        lines += ["## Replay-Resistance Checks", ""]
+        for c in checks:
+            e = RISK_EMOJI.get(c["risk"], "⚪")
+            try:
+                freq = f"{int(c['frequency']) / 1e6:.2f} MHz"
+            except (TypeError, ValueError):
+                freq = str(c["frequency"])
+            lines += [
+                f"**{e} {c['finding']}** ({freq})",
+                "",
+                f"> {c['detail']}",
+                "",
+                "| Recording A | Recording B | Packet similarity | Result |",
+                "|---|---|---|---|",
+            ]
+            for ev in c["evidence"]:
+                same = " (two presses in one recording)" if ev["a"] == ev["b"] else ""
+                lines.append(f"| `{ev['a']}` | `{ev['b']}`{same} | {ev['similarity']:.0%} | {ev['verdict']} |")
+            lines += ["", "**Recommended Mitigations:**"] + [f"- {m}" for m in c["mitigations"]]
+            lines += ["", "*Method: repeated packets are extracted from each RAW recording and compared "
+                      "after normalizing pulse widths. Assumes the recordings are the same transmitter.*",
+                      "", "---", ""]
+
+    lines += ["## Findings", ""]
 
     # ── Per-capture findings ──────────────────────────────────────────────────
     for i, result in enumerate(results, 1):

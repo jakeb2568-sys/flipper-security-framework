@@ -44,6 +44,28 @@ class CaptureTests(unittest.TestCase):
         self.assertTrue(text.startswith("Filetype: Flipper SubGhz Key File"))
         self.assertNotIn("Size:", text)
 
+    def test_pull_since_uses_filename_date_and_timestamp(self):
+        from datetime import date, datetime
+        raw = "Filetype: Flipper SubGhz RAW File\nVersion: 1\nFrequency: 433920000\nProtocol: RAW\n"
+        self.fake.files.update({
+            "/ext/subghz/RAW-20260519-114544.sub": raw,     # old, dated by name
+            "/ext/subghz/RAW-20260929-123231.sub": raw,     # new, dated by name
+            "/ext/subghz/Raw_signal_.sub": raw,             # no date in name -> timestamp
+        })
+        self.fake.timestamps["/ext/subghz/Raw_signal_.sub"] = int(datetime(2026, 9, 29, 12).timestamp())
+        capture.pull(self.cli, self.session, since=date(2026, 9, 29))
+        self.assertEqual(self.files(), ["RAW-20260929-123231.sub", "Raw_signal_.sub"])
+
+    def test_pull_since_skips_undated_files(self):
+        from datetime import date
+        # SD_CARD files have no date in the name and no timestamp -> skipped, not guessed
+        capture.pull(self.cli, self.session, since=date(2026, 1, 1))
+        self.assertEqual(self.files(), [])
+
+    def test_pull_only_pattern(self):
+        capture.pull(self.cli, self.session, only=["*.RFID", "tv*"])
+        self.assertEqual(self.files(), ["badge.rfid", "tv.ir"])
+
     def test_subghz_scan_decodes_and_dedupes(self):
         capture.scan_subghz(self.cli, self.session, [433.92, 315], seconds=1)
         self.assertEqual(self.files(), ["live_subghz_433920000_1.sub"])
@@ -94,6 +116,13 @@ class ArgumentTests(unittest.TestCase):
     def test_options_before_subcommand(self):
         a = self.parse("--port", "COM4", "--report", "pull")
         self.assertEqual((a.port, a.report, a.redact, a.mode), ("COM4", True, False, "pull"))
+
+    def test_pull_filters_parse(self):
+        from datetime import date
+        a = self.parse("pull", "--since", "today", "--only", "RAW-*", "--report")
+        self.assertEqual((a.since, a.only, a.report), (date.today(), ["RAW-*"], True))
+        with self.assertRaises(SystemExit):
+            self.parse("pull", "--since", "last tuesday")
 
     def test_defaults(self):
         a = self.parse("pull")

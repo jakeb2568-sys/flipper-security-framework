@@ -27,6 +27,8 @@ class RiskRuleTests(unittest.TestCase):
             "door_key.ibtn": "HIGH",            # Dallas DS1990
             "car_fob.sub": "LOW",               # rolling-code KeeLoq
             "conference_room_tv.ir": "LOW",
+            "car_fob_raw_press1.sub": "MEDIUM",  # unidentified raw @ 433 MHz
+            "car_fob_raw_press2.sub": "MEDIUM",
         }
         for name, risk in expected.items():
             with self.subTest(sample=name):
@@ -53,6 +55,57 @@ class RiskRuleTests(unittest.TestCase):
         rec = {"type": "subghz", "protocol": "RAW", "frequency": "315000000", "raw_data": ["100 -200"]}
         findings = [f["finding"] for f in analyze.classify(rec)["findings"]]
         self.assertIn("Unidentified Sub-GHz transmission captured (raw)", findings)
+
+
+class ReplayCheckTests(unittest.TestCase):
+    def setUp(self):
+        sys.path.insert(0, str(REPO / "tests"))
+        import replay_check
+        import signal_gen
+        self.rc, self.sg = replay_check, signal_gen
+
+    def durations(self, sub_text):
+        return self.rc.durations_from_raw_lines(sub_text.splitlines())
+
+    def verdict(self, *subs):
+        return self.rc.check({f"p{i}": self.durations(s) for i, s in enumerate(subs)})["verdict"]
+
+    def test_fixed_and_rolling_across_many_remotes(self):
+        for seed in range(1, 21):
+            with self.subTest(seed=seed):
+                self.assertEqual(self.verdict(*self.sg.make_pair("fixed", seed)), "fixed")
+                self.assertEqual(self.verdict(*self.sg.make_pair("rolling", seed)), "rolling")
+
+    def test_single_press_is_inconclusive(self):
+        a, _ = self.sg.make_pair("rolling", 3)
+        self.assertEqual(self.verdict(a), "inconclusive")
+
+    def test_two_presses_in_one_recording(self):
+        import random
+        rng = random.Random(9)
+        serial = "0110" * 7
+        both = self.sg.press(self.sg.rolling_bits(rng, serial), rng) + self.sg.press(self.sg.rolling_bits(rng, serial), rng)
+        self.assertEqual(self.rc.check({"one.sub": both})["verdict"], "rolling")
+
+    def test_different_devices_not_compared(self):
+        a, _ = self.sg.make_pair("rolling", 3)
+        short = self.sg.to_sub(self.sg.press("1011" * 6, __import__("random").Random(1)))  # 24-bit remote
+        self.assertEqual(self.verdict(a, short), "inconclusive")
+
+    def test_samples_show_rolling_in_report(self):
+        records = [ingest.ingest_file(str(SAMPLES / n)) for n in ("car_fob_raw_press1.sub", "car_fob_raw_press2.sub")]
+        analysis = analyze.analyze_all(records)
+        self.assertEqual([c["verdict"] for c in analysis["replay_checks"]], ["rolling"])
+        text = report.generate_report(analysis)
+        self.assertIn("## Replay-Resistance Checks", text)
+        self.assertIn("rolling code behavior", text)
+
+    def test_fixed_check_raises_posture(self):
+        a, b = self.sg.make_pair("fixed", 4)
+        recs = [{"type": "subghz", "source_file": n, "frequency": "433920000", "protocol": "RAW",
+                 "raw_data": s.splitlines()[5:]} for n, s in (("a.sub", a), ("b.sub", b))]
+        text = report.generate_report(analyze.analyze_all(recs))
+        self.assertIn("**Overall Risk Posture:** 🟠 **HIGH**", text)
 
 
 class RedactionTests(unittest.TestCase):

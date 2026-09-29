@@ -1,5 +1,5 @@
 # Demo Assessment — Sample Captures
-**Generated:** 2026-09-29 17:02Z  
+**Generated:** 2026-09-29 17:50Z  
 **Framework:** Flipper Security Framework  
 **Tool:** Flipper Zero + Python Analysis Pipeline  
 **Identifiers:** shown in full
@@ -10,9 +10,27 @@
 
 | Total Captures | CRITICAL | HIGH | MEDIUM | LOW | INFO |
 |---|---|---|---|---|---|
-| 6 | 1 | 3 | 0 | 2 | 0 |
+| 8 | 1 | 3 | 2 | 2 | 0 |
 
 **Overall Risk Posture:** 🔴 **CRITICAL**
+
+---
+
+## Replay-Resistance Checks
+
+**🟢 Replay-resistance check: code changes on every press — rolling code behavior** (433.92 MHz)
+
+> Separate button presses produced packets with the same structure but different content, so a recorded press cannot simply be replayed. Residual risk: jam-and-replay (RollJam) and relay attacks, which this check does not test.
+
+| Recording A | Recording B | Packet similarity | Result |
+|---|---|---|---|
+| `car_fob_raw_press1.sub` | `car_fob_raw_press2.sub` | 83% | changed |
+
+**Recommended Mitigations:**
+- No action needed against simple replay
+- Consider a signal-blocking pouch if relay attacks on keyless entry are a concern
+
+*Method: repeated packets are extracted from each RAW recording and compared after normalizing pulse widths. Assumes the recordings are the same transmitter.*
 
 ---
 
@@ -99,7 +117,61 @@
 
 ---
 
-### Finding 5 — 🟢 LOW | `car_fob.sub` (SUBGHZ)
+### Finding 5 — 🟡 MEDIUM | `car_fob_raw_press1.sub` (SUBGHZ)
+
+**Capture Details:**
+- **Protocol:** `RAW`
+- **Frequency:** `433920000`
+- **Preset:** `FuriHalSubGhzPresetOok650Async`
+
+**🟡 433 MHz transmission captured**
+
+> 433 MHz is a common unencrypted ISM band used by many consumer IoT devices, sensors, and remote controls. Traffic may be unencrypted.
+
+**Recommended Mitigations:**
+- Identify device owner and model
+- Assess whether traffic contains sensitive operational data
+- Consider RF shielding for sensitive areas
+
+**🟢 Unidentified Sub-GHz transmission captured (raw)**
+
+> Signal was captured but protocol could not be identified. May be proprietary or encrypted.
+
+**Recommended Mitigations:**
+- Perform deeper signal analysis with a SDR (e.g. GQRX, URH)
+- Document frequency, timing, and signal characteristics
+- Cross-reference with known protocol databases
+
+---
+
+### Finding 6 — 🟡 MEDIUM | `car_fob_raw_press2.sub` (SUBGHZ)
+
+**Capture Details:**
+- **Protocol:** `RAW`
+- **Frequency:** `433920000`
+- **Preset:** `FuriHalSubGhzPresetOok650Async`
+
+**🟡 433 MHz transmission captured**
+
+> 433 MHz is a common unencrypted ISM band used by many consumer IoT devices, sensors, and remote controls. Traffic may be unencrypted.
+
+**Recommended Mitigations:**
+- Identify device owner and model
+- Assess whether traffic contains sensitive operational data
+- Consider RF shielding for sensitive areas
+
+**🟢 Unidentified Sub-GHz transmission captured (raw)**
+
+> Signal was captured but protocol could not be identified. May be proprietary or encrypted.
+
+**Recommended Mitigations:**
+- Perform deeper signal analysis with a SDR (e.g. GQRX, URH)
+- Document frequency, timing, and signal characteristics
+- Cross-reference with known protocol databases
+
+---
+
+### Finding 7 — 🟢 LOW | `car_fob.sub` (SUBGHZ)
 
 **Capture Details:**
 - **Protocol:** `KeeLoq`
@@ -118,7 +190,7 @@
 
 ---
 
-### Finding 6 — 🟢 LOW | `conference_room_tv.ir` (IR)
+### Finding 8 — 🟢 LOW | `conference_room_tv.ir` (IR)
 
 **Capture Details:**
 - **Signals:** `[{'name': 'Power', 'type': 'parsed', 'protocol': 'NECext', 'address': '04 00 00 00', 'command': '08 00 00 00'}, {'name': 'Vol+', 'type': 'parsed', 'protocol': 'NECext', 'address': '04 00 00 00', 'command': '02 00 00 00'}, {'name': 'Vol-', 'type': 'parsed', 'protocol': 'NECext', 'address': '04 00 00 00', 'command': '03 00 00 00'}, {'name': 'Mute', 'type': 'parsed', 'protocol': 'NECext', 'address': '04 00 00 00', 'command': '09 00 00 00'}]`

@@ -11,8 +11,12 @@ Reads normalized ingestion JSON and classifies each capture by:
 
 import json
 import os
+import sys
 import argparse
 from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import replay_check  # noqa: E402
 
 
 # ── Risk classification rules ────────────────────────────────────────────────
@@ -282,6 +286,62 @@ def classify(record: dict) -> dict:
     }
 
 
+REPLAY_FINDINGS = {
+    "fixed": {
+        "risk": "HIGH",
+        "finding": "Replay-resistance check: same code on every press — fixed code",
+        "detail": "Separate button presses produced the same packet. Anyone who records one "
+                  "press can replay it to operate the device.",
+        "mitigations": [
+            "Replace with a rolling-code or challenge-response system",
+            "Until replaced, treat the remote like a physical key: limit where it is used and who holds it"
+        ]
+    },
+    "rolling": {
+        "risk": "LOW",
+        "finding": "Replay-resistance check: code changes on every press — rolling code behavior",
+        "detail": "Separate button presses produced packets with the same structure but different "
+                  "content, so a recorded press cannot simply be replayed. Residual risk: "
+                  "jam-and-replay (RollJam) and relay attacks, which this check does not test.",
+        "mitigations": [
+            "No action needed against simple replay",
+            "Consider a signal-blocking pouch if relay attacks on keyless entry are a concern"
+        ]
+    },
+}
+
+
+def replay_checks(records: list) -> list:
+    """Compare RAW Sub-GHz recordings made on the same frequency.
+
+    Each frequency with two or more comparable packets gets one finding.
+    Assumes recordings on the same frequency in one session are the same remote.
+    """
+    groups = {}
+    for r in records:
+        if r.get("type") == "subghz" and r.get("raw_data"):
+            groups.setdefault(r.get("frequency"), {})[r["source_file"]] = \
+                replay_check.durations_from_raw_lines(r["raw_data"])
+
+    checks = []
+    for freq, caps in groups.items():
+        result = replay_check.check(caps)
+        if result["verdict"] not in REPLAY_FINDINGS:
+            continue
+        evidence = [p for p in result["pairs"] if p["verdict"] != "not_comparable"]
+        checks.append({
+            **REPLAY_FINDINGS[result["verdict"]],
+            "verdict": result["verdict"],
+            "frequency": freq,
+            "files": sorted(caps),
+            "evidence": [
+                {"a": p["a"], "b": p["b"], "similarity": p["similarity"], "verdict": p["verdict"]}
+                for p in evidence
+            ],
+        })
+    return checks
+
+
 def analyze_all(records: list) -> dict:
     """Analyze a list of ingested records and produce a summary report structure."""
     results = [classify(r) for r in records]
@@ -296,7 +356,8 @@ def analyze_all(records: list) -> dict:
             "risk_counts": counts,
             "analyzed_at": datetime.utcnow().isoformat() + "Z"
         },
-        "results": results
+        "results": results,
+        "replay_checks": replay_checks(records),
     }
 
 
@@ -332,6 +393,8 @@ def main():
     summary = analysis["analysis_summary"]
     print(f"  [✓] Analyzed {summary['total_captures']} capture(s)")
     print(f"  Risk breakdown: {summary['risk_counts']}")
+    for c in analysis["replay_checks"]:
+        print(f"  Replay check @ {c['frequency']}: {c['verdict'].upper()} ({', '.join(c['files'])})")
     print(f"  → Output: {args.output}")
 
 

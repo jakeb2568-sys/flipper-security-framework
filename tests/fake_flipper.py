@@ -56,6 +56,7 @@ class FakeFlipperSerial:
         self.fail_live = fail_live
         self.app_open = app_open
         self.files = dict(SD_CARD)
+        self.timestamps = {}          # path -> unix time, for `storage timestamp`
         self.commands = []
 
     # -- pyserial surface ------------------------------------------------
@@ -104,6 +105,10 @@ class FakeFlipperSerial:
             rows = [f"\t[F] {p.rsplit('/', 1)[1]} {len(c)}b" for p, c in self.files.items()
                     if p.rsplit("/", 1)[0] == folder]
             self._reply(cmd, "\r\n".join(rows) or "\tEmpty")
+        elif cmd.startswith("storage timestamp "):
+            path = cmd.split(" ", 2)[2]
+            ts = self.timestamps.get(path)
+            self._reply(cmd, f"Timestamp {ts}" if ts else "Storage error: file/dir not exist")
         elif cmd.startswith("storage read "):
             path = cmd.split(" ", 2)[2]
             c = self.files.get(path)
