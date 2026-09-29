@@ -38,19 +38,23 @@ NFC_DUMP = (
     "UID: 4A 3B 2C 1D\nATQA: 00 04\nSAK: 08\nMifare Classic type: 1K\n"
 )
 
+# Firmware 1.x format (dotted keys), trimmed from a real 1.4.3 device
 DEVICE_INFO = (
-    "hardware_name        : Fake-Flip\r\nfirmware_version     : 1.4.3\r\n"
-    "firmware_commit      : deadbeef\r\nradio_stack_major    : 1\r\n"
+    "hardware.model                : Flipper Zero\r\nhardware.uid                  : 0000000000000000\r\n"
+    "hardware.region.provisioned   : US\r\nhardware.name                 : Fake-Flip\r\n"
+    "firmware.commit.hash          : deadbeef\r\nfirmware.version              : 1.4.3\r\n"
+    "firmware.origin.fork          : Official\r\nradio.ble.mac                 : 000000000000\r\n"
 )
 
 
 class FakeFlipperSerial:
-    def __init__(self, fail_live=False):
+    def __init__(self, fail_live=False, app_open=False):
         self._out = bytearray(b"Welcome to Flipper Zero Command Line Interface!" + PROMPT)
         self._line = bytearray()
         self._streaming = False
         self._nfc_shell = False
         self.fail_live = fail_live
+        self.app_open = app_open
         self.files = dict(SD_CARD)
         self.commands = []
 
@@ -116,6 +120,9 @@ class FakeFlipperSerial:
             self.files[path] = NFC_DUMP
             self._reply(cmd, f"Dumped to {path}")
         elif cmd in LIVE:
+            if self.app_open:
+                self._reply(cmd, "this command cannot be run while an application is open")
+                return
             if self.fail_live:
                 self._reply(cmd, "")
                 return

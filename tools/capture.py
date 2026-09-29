@@ -67,6 +67,18 @@ SCAN_TYPES = ("subghz", "rfid", "ibutton", "nfc", "ir")
 
 # ── Serial CLI transport ─────────────────────────────────────────────────────
 
+class FlipperBusyError(RuntimeError):
+    """The Flipper refused a command because an app is open on the device."""
+
+    HINT = ("An app is open on the Flipper, so it refused the scan. "
+            "Press Back on the Flipper until you reach the home screen, then rerun.")
+
+
+def _check_busy(text: str):
+    if "application is open" in text.lower():
+        raise FlipperBusyError(FlipperBusyError.HINT)
+
+
 class FlipperCLI:
     """Minimal, single-threaded client for the Flipper Zero serial CLI."""
 
@@ -115,7 +127,9 @@ class FlipperCLI:
         """Run a command that returns to the prompt on its own."""
         self._ser.reset_input_buffer()
         self._ser.write(f"{cmd}\r".encode())
-        return self._clean(self._read_until(PROMPT, timeout), cmd)
+        out = self._clean(self._read_until(PROMPT, timeout), cmd)
+        _check_busy(out)
+        return out
 
     def stream(self, cmd: str, seconds: float, until=None) -> str:
         """Run a continuous command (rx/read) for up to `seconds`, then Ctrl+C.
@@ -142,21 +156,28 @@ class FlipperCLI:
         if not finished:
             self._ser.write(b"\x03")
             buf += self._read_until(PROMPT, 3.0)
-        return self._clean(bytes(buf), cmd)
+        out = self._clean(bytes(buf), cmd)
+        _check_busy(out)
+        return out
 
     # convenience wrappers
     def device_info(self) -> dict:
+        """Model/firmware summary. Handles both key styles:
+        firmware 1.x prints `firmware.version : 1.4.3`, older builds `firmware_version : ...`.
+        Serial numbers and MAC addresses are deliberately not kept."""
         out = self.run("info device")
         if "firmware" not in out:
             out = self.run("device_info")
         info = {}
         for key, val in re.findall(r"^\s*([\w.]+)\s*:\s*(.+)$", out, re.M):
-            info[key.strip()] = val.strip()
+            info[key.strip().replace(".", "_")] = val.strip()
         return {
+            "hardware_model": info.get("hardware_model") or "Flipper Zero",
             "hardware_name": info.get("hardware_name"),
+            "region": info.get("hardware_region_provisioned"),
             "firmware_version": info.get("firmware_version"),
-            "firmware_commit": info.get("firmware_commit"),
-            "radio_stack": info.get("radio_stack_major"),
+            "firmware_origin": info.get("firmware_origin_fork"),
+            "firmware_commit": info.get("firmware_commit_hash") or info.get("firmware_commit"),
         }
 
     def list_files(self, folder: str) -> list:
@@ -448,14 +469,20 @@ def main(argv=None):
 
     with FlipperCLI(port) as cli:
         info = cli.device_info()
-        print(f"  Device: {info.get('hardware_name') or 'Flipper Zero'}  firmware {info.get('firmware_version') or '?'}")
-        if args.mode == "pull":
-            pull(cli, session)
-        else:
-            types = list(SCAN_TYPES) if "all" in args.types else args.types
-            run_scans(cli, session, types, args.freq or [433.92, 315.0], args.seconds)
-            if args.pull:
+        print(f"  Device: {info['hardware_name'] or info['hardware_model']}  "
+              f"firmware {info.get('firmware_version') or '?'} ({info.get('firmware_origin') or 'unknown'})")
+        try:
+            if args.mode == "pull":
                 pull(cli, session)
+            else:
+                types = list(SCAN_TYPES) if "all" in args.types else args.types
+                run_scans(cli, session, types, args.freq or [433.92, 315.0], args.seconds)
+                if args.pull:
+                    pull(cli, session)
+        except FlipperBusyError as e:
+            session.log(action="abort", error=str(e))
+            session.write_manifest({"port": port, "device": info})
+            sys.exit(f"\n  [!] {e}")
 
     session.write_manifest({"port": port, "device": info})
     print(f"\n  [✓] {len(session.saved)} capture file(s) in {session.dir}")

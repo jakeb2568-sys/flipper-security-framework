@@ -32,6 +32,10 @@ class CaptureTests(unittest.TestCase):
     def test_device_info(self):
         info = self.cli.device_info()
         self.assertEqual(info["firmware_version"], "1.4.3")
+        self.assertEqual(info["firmware_origin"], "Official")
+        self.assertEqual(info["region"], "US")
+        # serial number / MAC are not kept in the manifest
+        self.assertNotIn("0000000000000000", str(info))
 
     def test_pull_copies_sd_card_files(self):
         capture.pull(self.cli, self.session)
@@ -65,6 +69,12 @@ class CaptureTests(unittest.TestCase):
         self.fake.fail_live = True
         capture.run_scans(self.cli, self.session, ["rfid", "ibutton"], [433.92], 1)
         self.assertEqual(self.files(), [])
+
+    def test_app_open_raises_clear_error(self):
+        self.fake.app_open = True
+        with self.assertRaises(capture.FlipperBusyError) as ctx:
+            capture.run_scans(self.cli, self.session, ["subghz"], [433.92], 1)
+        self.assertIn("home screen", str(ctx.exception))
 
     def test_prompt_left_clean_after_stream(self):
         # after a Ctrl+C'd scan the next command must get its own clean output
