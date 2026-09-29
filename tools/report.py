@@ -166,7 +166,7 @@ def main():
     report = generate_report(analysis, assessment_name=args.name)
 
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
-    with open(args.output, "w") as f:
+    with open(args.output, "w", encoding="utf-8") as f:
         f.write(report)
 
     print(f"  [✓] Report written → {args.output}")
