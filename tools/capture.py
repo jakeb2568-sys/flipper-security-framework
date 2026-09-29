@@ -398,24 +398,36 @@ def run_pipeline(s: Session, name: str, redact: bool = False) -> Path:
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
+def _add_common(parser, suppress: bool = False):
+    """Options accepted before OR after the pull/scan subcommand.
+
+    The subcommand copies use SUPPRESS defaults so they never overwrite a value
+    that was given before the subcommand.
+    """
+    d = (lambda v: argparse.SUPPRESS) if suppress else (lambda v: v)
+    parser.add_argument("--port", default=d(None), help="Serial port (e.g. COM4, /dev/ttyACM0). Auto-detected if omitted.")
+    parser.add_argument("--out", default=d(str(REPO_ROOT / "data" / "raw")), help="Root folder for sessions (default: data/raw)")
+    parser.add_argument("--session", default=d(None), help="Session folder name (default: timestamp)")
+    parser.add_argument("--report", action="store_true", default=d(False), help="Run ingest → analyze → report after collecting")
+    parser.add_argument("--name", default=d("Live Assessment"), help="Assessment name used in the report")
+    parser.add_argument("--redact", action="store_true", default=d(False), help="Mask UIDs/keys in the report (safe to share)")
+    parser.add_argument("-y", "--yes", action="store_true", default=d(False), help="Skip the authorization confirmation")
+
+
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Flipper Security Framework — collect captures from a Flipper Zero")
-    ap.add_argument("--port", help="Serial port (e.g. COM4, /dev/ttyACM0). Auto-detected if omitted.")
-    ap.add_argument("--out", default=str(REPO_ROOT / "data" / "raw"), help="Root folder for sessions (default: data/raw)")
-    ap.add_argument("--session", help="Session folder name (default: timestamp)")
-    ap.add_argument("--report", action="store_true", help="Run ingest → analyze → report after collecting")
-    ap.add_argument("--name", default="Live Assessment", help="Assessment name used in the report")
-    ap.add_argument("--redact", action="store_true", help="Mask UIDs/keys in the report (safe to share)")
-    ap.add_argument("-y", "--yes", action="store_true", help="Skip the authorization confirmation")
+    _add_common(ap)
     sub = ap.add_subparsers(dest="mode", required=True)
 
-    sub.add_parser("pull", help="Copy captures saved on the Flipper's SD card")
+    pl = sub.add_parser("pull", help="Copy captures saved on the Flipper's SD card")
+    _add_common(pl, suppress=True)
 
     sc = sub.add_parser("scan", help="Run live read-only scans")
     sc.add_argument("types", nargs="+", choices=[*SCAN_TYPES, "all"], help="What to scan")
     sc.add_argument("--freq", type=float, action="append", help="Sub-GHz frequency in MHz (repeatable; default 433.92 and 315)")
     sc.add_argument("--seconds", type=int, default=10, help="Listen time per scan (default 10)")
     sc.add_argument("--pull", action="store_true", help="Also pull saved SD-card captures afterwards")
+    _add_common(sc, suppress=True)
     return ap
 
 

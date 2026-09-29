@@ -72,6 +72,24 @@ class CaptureTests(unittest.TestCase):
         self.assertEqual(self.cli.device_info()["hardware_name"], "Fake-Flip")
 
 
+class ArgumentTests(unittest.TestCase):
+    def parse(self, *argv):
+        return capture.build_parser().parse_args(argv)
+
+    def test_options_after_subcommand(self):
+        a = self.parse("scan", "subghz", "--freq", "433.92", "--report", "--redact", "--name", "Car")
+        self.assertTrue(a.report and a.redact)
+        self.assertEqual((a.name, a.freq, a.mode), ("Car", [433.92], "scan"))
+
+    def test_options_before_subcommand(self):
+        a = self.parse("--port", "COM4", "--report", "pull")
+        self.assertEqual((a.port, a.report, a.redact, a.mode), ("COM4", True, False, "pull"))
+
+    def test_defaults(self):
+        a = self.parse("pull")
+        self.assertEqual((a.port, a.report, a.name, a.yes), (None, False, "Live Assessment", False))
+
+
 class PipelineTest(unittest.TestCase):
     def test_capture_to_report(self):
         with tempfile.TemporaryDirectory() as tmp:
