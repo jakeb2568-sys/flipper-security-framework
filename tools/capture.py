@@ -425,23 +425,76 @@ def scan_simple(cli, s, kind, cmd, parser, ext, seconds, hint):
     s.log(action="scan", type=kind.lower(), decoded=bool(content))
 
 
+# Firmware scanner lines: "Protocols detected: Mifare Classic" (flat) and
+# "Protocol [1]: Iso14443-3a -> Mifare Classic" (tree). Take the name after "->"
+# when present, else after the colon.
+_UID_RE = re.compile(r"\bUID:\s*([0-9A-Fa-f ]{4,})", re.M)
+
+
+def _detected_nfc_type(text: str) -> str | None:
+    """Card family from firmware scanner output.
+
+    Handles both "Protocols detected: Mifare Classic" and
+    "Protocol [1]: Iso14443-3a -> Mifare Classic", and the case where the CLI
+    collapses them onto one line. Prefers the name after the last "->".
+    """
+    arrows = re.findall(r"->\s*([^\r\n]+)", text)
+    if arrows:
+        return arrows[-1].strip()
+    m = re.search(r"Protocols? detected:\s*([^\r\n]+)", text)
+    if m:
+        name = m.group(1).strip()
+        if name and not name.lower().startswith("iso14443"):
+            return name
+    return None
+
+
+def _partial_nfc_file(card_type: str, uid: str | None) -> str:
+    lines = ["Filetype: Flipper NFC device", "Version: 4", f"Device type: {card_type}"]
+    if uid:
+        lines.append(f"UID: {uid.strip().upper()}")
+    if card_type.startswith("Mifare Classic"):
+        lines.append("Mifare Classic type: 1K")
+    lines.append("# Type detected by scanner; full dump not performed (keys required).")
+    return "\n".join(lines) + "\n"
+
+
 def scan_nfc(cli, s, seconds):
-    """Dump a tag with the NFC sub-shell to the SD card, then pull the .nfc file."""
+    """Detect and, if possible, dump an NFC tag.
+
+    A full dump of a keyed card (e.g. Mifare Classic) needs its sector keys, which
+    the CLI does not have, so it may fail. When it does, the card type from the
+    scanner is still recorded — the type itself is the finding.
+    """
     print(f"\n  NFC: hold the card to the back of the Flipper ({seconds}s)")
     remote = f"/ext/nfc/fsf_{datetime.now():%Y%m%d_%H%M%S}.nfc"
     cli.run("nfc", timeout=3)
     try:
-        text = cli.run(f"dump -f {remote} -t {seconds * 1000}", timeout=seconds + 5)
+        scan_out = cli.stream("scanner -t", min(seconds, 6))
+        card_type = _detected_nfc_type(scan_out)
+        dump_out = ""
+        if card_type:
+            print(f"    [+] detected: {card_type}")
+            dump_out = cli.run(f"dump -f {remote} -t {seconds * 1000}", timeout=seconds + 5)
     finally:
         cli.run("exit", timeout=3)
-    s.transcript("nfc", text)
+    s.transcript("nfc", scan_out + "\n----- dump -----\n" + dump_out)
+
+    if not card_type:
+        print("    [-] no tag detected (see transcripts/nfc.cli)")
+        s.log(action="scan", type="nfc", decoded=False)
+        return
+
     content = cli.read_file(remote)
     if content.startswith("Filetype: Flipper NFC"):
-        s.save(Path(remote).name, content)
-        s.log(action="scan", type="nfc", decoded=True, remote=remote)
-    else:
-        print("    [-] no tag dumped (see transcripts/nfc.cli)")
-        s.log(action="scan", type="nfc", decoded=False)
+        s.save(Path(remote).name, content)          # full dump succeeded
+        s.log(action="scan", type="nfc", decoded=True, card_type=card_type, remote=remote)
+    else:                                            # dump failed → keep the detection
+        uid = _UID_RE.search(dump_out)
+        s.save(f"nfc_{datetime.now():%H%M%S}.nfc",
+               _partial_nfc_file(card_type, uid.group(1) if uid else None))
+        print(f"    [i] full dump needs the card's keys; recorded the detected type ({card_type})")
+        s.log(action="scan", type="nfc", decoded="type_only", card_type=card_type)
 
 
 def run_scans(cli, s, types, freqs, seconds):

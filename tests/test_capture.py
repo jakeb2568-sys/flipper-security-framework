@@ -76,6 +76,28 @@ class CaptureTests(unittest.TestCase):
         # both frequencies leave a transcript, decoded or not
         self.assertEqual(len(list(self.session.transcripts.iterdir())), 2)
 
+    def test_nfc_dump_failure_keeps_detected_type(self):
+        # A keyed card the CLI can't fully dump must still be recorded by type.
+        fake = FakeFlipperSerial(nfc_dump_fails=True)
+        cli = capture.FlipperCLI("fake", conn=fake)
+        capture.scan_nfc(cli, self.session, 2)
+        saved = self.files()
+        self.assertEqual(len(saved), 1)
+        self.assertTrue(saved[0].endswith(".nfc"))
+        content = (self.session.dir / saved[0]).read_text()
+        self.assertIn("Device type: Mifare Classic", content)
+        # and it must analyze as HIGH
+        import ingest, analyze
+        rec = ingest.ingest_file(str(self.session.dir / saved[0]))
+        self.assertEqual(analyze.classify(rec)["overall_risk"], "HIGH")
+
+    def test_nfc_type_parsing(self):
+        self.assertEqual(capture._detected_nfc_type(
+            "Protocol [1]: Iso14443-3a -> Mifare Classic"), "Mifare Classic")
+        self.assertEqual(capture._detected_nfc_type(
+            "Protocols detected: NTAG215"), "NTAG215")
+        self.assertIsNone(capture._detected_nfc_type("Protocols detected:\n"))
+
     def test_all_scans(self):
         capture.run_scans(self.cli, self.session, list(capture.SCAN_TYPES), [433.92], 1)
         exts = sorted(Path(f).suffix for f in self.files())

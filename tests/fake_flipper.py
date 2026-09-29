@@ -48,13 +48,14 @@ DEVICE_INFO = (
 
 
 class FakeFlipperSerial:
-    def __init__(self, fail_live=False, app_open=False):
+    def __init__(self, fail_live=False, app_open=False, nfc_dump_fails=False):
         self._out = bytearray(b"Welcome to Flipper Zero Command Line Interface!" + PROMPT)
         self._line = bytearray()
         self._streaming = False
         self._nfc_shell = False
         self.fail_live = fail_live
         self.app_open = app_open
+        self.nfc_dump_fails = nfc_dump_fails
         self.files = dict(SD_CARD)
         self.timestamps = {}          # path -> unix time, for `storage timestamp`
         self.commands = []
@@ -120,10 +121,18 @@ class FakeFlipperSerial:
         elif cmd == "exit" and self._nfc_shell:
             self._nfc_shell = False
             self._reply(cmd, "")
+        elif self._nfc_shell and cmd.startswith("scanner"):
+            body = ("Press Ctrl+C to abort\r\n\r\nProtocols detected:\r\n"
+                    "Protocol [1]: Iso14443-3a -> Mifare Classic")
+            self._streaming = True
+            self._reply(cmd, body, prompt=False)
         elif self._nfc_shell and cmd.startswith("dump"):
             path = cmd.split("-f ", 1)[1].split()[0]
-            self.files[path] = NFC_DUMP
-            self._reply(cmd, f"Dumped to {path}")
+            if self.nfc_dump_fails:
+                self._reply(cmd, 'Dumping as "Mifare Classic"\r\nError: failed to read')
+            else:
+                self.files[path] = NFC_DUMP
+                self._reply(cmd, f"Dumped to {path}")
         elif cmd in LIVE:
             if self.app_open:
                 self._reply(cmd, "this command cannot be run while an application is open")
